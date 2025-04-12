@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout,
 from PyQt6.QtGui import QPixmap, QKeyEvent
 from PyQt6.QtCore import Qt
 
-# API Ключи (из урока) - учебные
+# Используем учебные ключи из предыдущего кода
 GEOCODER_API_KEY = "8013b162-6b42-4997-9691-77b7074026e0"
 STATIC_MAPS_API_KEY = "f3a0fe3a-b07e-4840-a1da-06f18b2ddf13"
 GEOSEARCH_API_KEY = "dda3ddba-c9ea-4ead-9010-f43fbc15c6e3"
@@ -29,13 +29,14 @@ class MapViewerApp(QWidget):
     def __init__(self):
         super().__init__()
 
-        self.address_label = QLabel("Полный адрес:", self)  # Label for the label
         self.theme_checkbox = QCheckBox("Тёмная тема", self)
-        self.address_display = QLabel("", self)  # Actual display area
+        self.postal_code_checkbox = QCheckBox("Добавить индекс", self)  # Новый чекбокс
         self.reset_button = QPushButton("Сброс", self)
-        self.search_input = QLineEdit(self)
+        self.address_display = QLabel("", self)
+        self.address_label = QLabel("Полный адрес:", self)
         self.image_label = QLabel(self)
         self.search_button = QPushButton("Искать", self)
+        self.search_input = QLineEdit(self)
         self.lon = 37.617635
         self.lat = 55.755814
         self.spn_lon = 0.05
@@ -43,14 +44,15 @@ class MapViewerApp(QWidget):
         self.map_type = "map"
         self.current_theme = "light"
         self.marker_coords = None
-        self.current_address = ""  # Added state for address
+        self.current_full_address = ""  # Хранит полный адрес
+        self.current_postal_code = None  # Хранит индекс отдельно
+        self.include_postal_code = False  # Состояние чекбокса индекса
 
         self.initUI()
         self.load_map()
 
     def initUI(self):
-        self.setWindowTitle('Карта v0.8')
-        # Increased height for search, checkbox, and address label
+        self.setWindowTitle('Карта v0.9')
         self.setGeometry(100, 100, MAP_WIDTH, MAP_HEIGHT + 120)
 
         self.search_input.setPlaceholderText("Введите адрес для поиска...")
@@ -63,20 +65,20 @@ class MapViewerApp(QWidget):
         self.image_label.resize(MAP_WIDTH, MAP_HEIGHT)
         self.image_label.setStyleSheet("background-color: lightgray;")
 
-        # --- Address Display Label ---
-        self.address_display.setWordWrap(True)  # Allow text wrapping
-        self.address_display.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)  # Allow copying
+        self.address_display.setWordWrap(True)
+        self.address_display.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
+        # --- Control Checkboxes ---
         controls_layout = QHBoxLayout()
         controls_layout.addWidget(self.theme_checkbox)
+        controls_layout.addWidget(self.postal_code_checkbox)  # Добавили в layout
         controls_layout.addStretch(1)
 
-        # --- Main Layout ---
         main_layout = QVBoxLayout(self)
         main_layout.addLayout(search_layout)
         main_layout.addWidget(self.image_label)
-        main_layout.addWidget(self.address_label)  # Add title for address
-        main_layout.addWidget(self.address_display)  # Add address display
+        main_layout.addWidget(self.address_label)
+        main_layout.addWidget(self.address_display)
         main_layout.addLayout(controls_layout)
         self.setLayout(main_layout)
 
@@ -84,6 +86,8 @@ class MapViewerApp(QWidget):
         self.search_input.returnPressed.connect(self.search_object)
         self.reset_button.clicked.connect(self.reset_search_result)
         self.theme_checkbox.stateChanged.connect(self.toggle_theme)
+        # Соединяем сигнал нового чекбокса
+        self.postal_code_checkbox.stateChanged.connect(self.toggle_postal_code)
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.show()
@@ -126,16 +130,16 @@ class MapViewerApp(QWidget):
             else:
                 print("Ошибка: Не удалось загрузить QPixmap из полученных данных.")
                 self.image_label.setText("Ошибка загрузки карты")
-                self.clear_search_state()  # Clear address and marker
+                self.clear_search_state()
 
         except requests.exceptions.RequestException as e:
             print(f"Ошибка сети при запросе карты: {e}")
             self.image_label.setText(f"Ошибка сети:\n{e}")
-            self.clear_search_state()  # Clear address and marker
+            self.clear_search_state()
         except Exception as e:
             print(f"Непредвиденная ошибка при загрузке карты: {e}")
             self.image_label.setText(f"Ошибка:\n{e}")
-            self.clear_search_state()  # Clear address and marker
+            self.clear_search_state()
 
     def toggle_theme(self, state):
         if state == Qt.CheckState.Checked.value:
@@ -146,29 +150,50 @@ class MapViewerApp(QWidget):
             print("Переключена тема: Светлая")
         self.load_map()
 
+    def toggle_postal_code(self, state):
+        """Обрабатывает изменение состояния чекбокса индекса."""
+        self.include_postal_code = (state == Qt.CheckState.Checked.value)
+        print(f"Отображение индекса: {'Включено' if self.include_postal_code else 'Выключено'}")
+        self.update_address_display()  # Обновляем отображение адреса
+
     def search_object(self):
         search_query = self.search_input.text().strip()
         if not search_query:
             print("Поисковый запрос пуст.")
             return
         print(f"Выполняется поиск: '{search_query}'")
+        # Очищаем предыдущие результаты перед новым поиском
+        self.clear_search_state()
         self.geocode_and_update_map(search_query)
 
     def reset_search_result(self):
-        """Clears the search marker, address and reloads the map."""
-        if self.marker_coords or self.current_address:
+        if self.marker_coords or self.current_full_address:
             print("Сброс результата поиска (удаление метки и адреса).")
             self.clear_search_state()
-            self.search_input.clear()
+            self.search_input.clear()  # Очищаем поле ввода при сбросе
             self.load_map()
         else:
             print("Нет активного результата поиска для сброса.")
 
     def clear_search_state(self):
-        """Helper function to clear marker and address state."""
+        """Вспомогательная функция для сброса состояния поиска."""
         self.marker_coords = None
-        self.current_address = ""
-        self.address_display.clear()  # Clear the address display widget
+        self.current_full_address = ""
+        self.current_postal_code = None
+        self.update_address_display()  # Обновляем (очищаем) отображение адреса
+
+    def update_address_display(self):
+        """Форматирует и отображает адрес в зависимости от состояния."""
+        if not self.current_full_address:
+            self.address_display.clear()
+            return
+
+        display_text = self.current_full_address
+        # Добавляем индекс, если он есть и чекбокс включен
+        if self.include_postal_code and self.current_postal_code:
+            display_text += f", {self.current_postal_code}"
+
+        self.address_display.setText(display_text)
 
     def geocode_and_update_map(self, address_to_find):
         geocoder_params = {
@@ -185,23 +210,35 @@ class MapViewerApp(QWidget):
             feature_member = json_response["response"]["GeoObjectCollection"]["featureMember"]
             if not feature_member:
                 print(f"Ошибка геокодера: Объект '{address_to_find}' не найден.")
-                self.reset_search_result()
+                # self.reset_search_result() # Сброс уже сделан в search_object
+                self.load_map()
                 return
 
             geo_object = feature_member[0]["GeoObject"]
             point_str = geo_object["Point"]["pos"]
             found_lon, found_lat = map(float, point_str.split(" "))
 
-            # --- Extract Address ---
+            # --- Извлечение Адреса и Индекса ---
             try:
                 address_meta = geo_object["metaDataProperty"]["GeocoderMetaData"]
-                self.current_address = address_meta["text"]  # Get the full address
-                print(f"Найден адрес: {self.current_address}")
-                self.address_display.setText(self.current_address)  # Update display
-            except (KeyError, IndexError):
-                print("Не удалось извлечь адрес из ответа геокодера.")
-                self.current_address = "Адрес не найден"
-                self.address_display.setText(self.current_address)
+                self.current_full_address = address_meta.get("text", "Адрес не найден")
+                address_details = address_meta.get("Address", {})
+                self.current_postal_code = address_details.get("postal_code")  # Получаем индекс
+
+                print(f"Найден адрес: {self.current_full_address}")
+                if self.current_postal_code:
+                    print(f"Найден индекс: {self.current_postal_code}")
+                else:
+                    print("Почтовый индекс не найден.")
+
+                # Обновляем отображение сразу после получения данных
+                self.update_address_display()
+
+            except (KeyError, TypeError):
+                print("Не удалось извлечь адрес/индекс из ответа геокодера.")
+                self.current_full_address = "Адрес/индекс не найден"
+                self.current_postal_code = None
+                self.update_address_display()
 
             self.lon = found_lon
             self.lat = found_lat
@@ -227,10 +264,12 @@ class MapViewerApp(QWidget):
 
         except requests.exceptions.RequestException as e:
             print(f"Ошибка сети при запросе к Геокодеру: {e}")
-            self.reset_search_result()
+            # self.reset_search_result() # Сброс уже сделан в search_object
+            self.load_map()
         except Exception as e:
             print(f"Непредвиденная ошибка при геокодировании: {e}")
-            self.reset_search_result()
+            # self.reset_search_result() # Сброс уже сделан в search_object
+            self.load_map()
 
     def keyPressEvent(self, event: QKeyEvent):
         key = event.key()
