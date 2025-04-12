@@ -17,8 +17,11 @@ GEOSEARCH_API_SERVER = "https://search-maps.yandex.ru/v1/"
 
 MAP_WIDTH, MAP_HEIGHT = 600, 450
 ZOOM_FACTOR = 1.5
+MOVE_STEP_FACTOR = 0.8
 MIN_SPN = 0.0005
 MAX_SPN = 80.0
+MIN_LAT, MAX_LAT = -85.0, 85.0
+MIN_LON, MAX_LON = -180.0, 180.0
 
 
 class MapViewerApp(QWidget):
@@ -35,7 +38,7 @@ class MapViewerApp(QWidget):
         self.load_map()
 
     def initUI(self):
-        self.setWindowTitle('Интерактивная карта (PgUp/PgDown для зума)')
+        self.setWindowTitle('Карта (PgUp/PgDn - зум, Стрелки - перемещение)')
         self.setGeometry(100, 100, MAP_WIDTH, MAP_HEIGHT)
 
         self.image_label = QLabel(self)
@@ -48,9 +51,12 @@ class MapViewerApp(QWidget):
         self.show()
 
     def load_map(self):
-        ll = f"{self.lon:.6f},{self.lat:.6f}"
+        self.lon = max(MIN_LON, min(self.lon, MAX_LON))
+        self.lat = max(MIN_LAT, min(self.lat, MAX_LAT))
         self.spn_lon = max(MIN_SPN, min(self.spn_lon, MAX_SPN))
         self.spn_lat = max(MIN_SPN, min(self.spn_lat, MAX_SPN))
+
+        ll = f"{self.lon:.6f},{self.lat:.6f}"
         spn = f"{self.spn_lon:.6f},{self.spn_lat:.6f}"
         size = f"{MAP_WIDTH},{MAP_HEIGHT}"
 
@@ -92,7 +98,6 @@ class MapViewerApp(QWidget):
             print("Нажата PgUp (Zoom In)")
             new_spn_lon = self.spn_lon / ZOOM_FACTOR
             new_spn_lat = self.spn_lat / ZOOM_FACTOR
-            # Check bounds before assigning
             if new_spn_lon >= MIN_SPN and new_spn_lat >= MIN_SPN:
                 self.spn_lon = new_spn_lon
                 self.spn_lat = new_spn_lat
@@ -104,13 +109,49 @@ class MapViewerApp(QWidget):
             print("Нажата PgDown (Zoom Out)")
             new_spn_lon = self.spn_lon * ZOOM_FACTOR
             new_spn_lat = self.spn_lat * ZOOM_FACTOR
-            # Check bounds before assigning
             if new_spn_lon <= MAX_SPN and new_spn_lat <= MAX_SPN:
                 self.spn_lon = new_spn_lon
                 self.spn_lat = new_spn_lat
                 map_updated = True
             else:
                 print("Достигнут максимальный масштаб")
+
+        elif key == Qt.Key.Key_Up:
+            print("Нажата стрелка Вверх")
+            new_lat = self.lat + self.spn_lat * MOVE_STEP_FACTOR
+            if new_lat <= MAX_LAT:
+                self.lat = new_lat
+                map_updated = True
+            else:
+                print("Достигнута северная граница карты")
+
+        elif key == Qt.Key.Key_Down:
+            print("Нажата стрелка Вниз")
+            new_lat = self.lat - self.spn_lat * MOVE_STEP_FACTOR
+            if new_lat >= MIN_LAT:
+                self.lat = new_lat
+                map_updated = True
+            else:
+                print("Достигнута южная граница карты")
+
+        elif key == Qt.Key.Key_Left:
+            print("Нажата стрелка Влево")
+            new_lon = self.lon - self.spn_lon * MOVE_STEP_FACTOR
+            if new_lon >= MIN_LON:
+                self.lon = new_lon
+                map_updated = True
+            else:
+                print("Достигнута западная граница карты")
+
+
+        elif key == Qt.Key.Key_Right:
+            print("Нажата стрелка Вправо")
+            new_lon = self.lon + self.spn_lon * MOVE_STEP_FACTOR
+            if new_lon <= MAX_LON:
+                self.lon = new_lon
+                map_updated = True
+            else:
+                print("Достигнута восточная граница карты")
 
         if map_updated:
             self.load_map()
