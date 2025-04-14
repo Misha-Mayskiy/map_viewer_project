@@ -1,22 +1,27 @@
-# main.py
 import sys
 import requests
-import math  # Needed for Mercator calculations
+import math
 
 from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout,
                              QCheckBox, QLineEdit, QPushButton, QHBoxLayout)
 from PyQt6.QtGui import QPixmap, QKeyEvent, QMouseEvent
 from PyQt6.QtCore import Qt, QPoint
 
-from utils.config import (STATIC_MAPS_API_KEY, STATIC_MAPS_API_SERVER,
-                          GEOCODER_API_KEY, GEOCODER_API_SERVER)
+# Используем учебные ключи из предыдущего кода
+GEOCODER_API_KEY = "8013b162-6b42-4997-9691-77b7074026e0"
+STATIC_MAPS_API_KEY = "f3a0fe3a-b07e-4840-a1da-06f18b2ddf13"
+GEOSEARCH_API_KEY = "dda3ddba-c9ea-4ead-9010-f43fbc15c6e3"
+
+# API Серверы
+GEOCODER_API_SERVER = "http://geocode-maps.yandex.ru/1.x/"
+STATIC_MAPS_API_SERVER = "https://static-maps.yandex.ru/v1"
+GEOSEARCH_API_SERVER = "https://search-maps.yandex.ru/v1/"
 
 MAP_WIDTH, MAP_HEIGHT = 600, 450
 ZOOM_FACTOR = 1.5
 MOVE_STEP_FACTOR = 0.8
 MIN_SPN = 0.0005
 MAX_SPN = 80.0
-# Use more precise latitude limits for Mercator calculations
 MIN_LAT, MAX_LAT = -85.05112878, 85.05112878
 MIN_LON, MAX_LON = -180.0, 180.0
 
@@ -315,41 +320,32 @@ class MapViewerApp(QWidget):
             span_lon, span_lat = self.spn_lon, self.spn_lat
             map_width, map_height = MAP_WIDTH, MAP_HEIGHT
 
-            # Calculate longitude using linear interpolation (usually good enough)
             lon_per_pixel = span_lon / map_width
             clicked_lon = center_lon + (x_pix - map_width / 2.0) * lon_per_pixel
 
-            # Calculate latitude using Mercator projection properties
-            # Function to convert latitude (degrees) to normalized Mercator y (0-1)
             def lat_to_merc_y(lat_d):
                 lat_r = math.radians(max(MIN_LAT, min(lat_d, MAX_LAT)))
                 sin_lat = math.sin(lat_r)
-                # Clamp sin_lat to avoid math errors near poles
                 if abs(sin_lat) > 0.999999:
                     sin_lat = math.copysign(0.999999, sin_lat)
                 y = 0.5 - math.log((1 + sin_lat) / (1 - sin_lat)) / (4 * math.pi)
                 return y
 
-            # Function to convert normalized Mercator y (0-1) back to latitude (degrees)
             def merc_y_to_lat(y_norm):
                 g = math.pi * (1 - 2 * y_norm)
                 lat_d = math.degrees(2 * math.atan(math.exp(g)) - math.pi / 2)
                 return lat_d
 
-            # Get Mercator y for the top and bottom edges of the map view
             lat_top = center_lat + span_lat / 2.0
             lat_bottom = center_lat - span_lat / 2.0
             merc_y_top = lat_to_merc_y(lat_top)
             merc_y_bottom = lat_to_merc_y(lat_bottom)
 
-            # Interpolate the Mercator y for the clicked pixel
             pixel_y_fraction = y_pix / map_height
             clicked_merc_y = merc_y_top + pixel_y_fraction * (merc_y_bottom - merc_y_top)
 
-            # Convert back to latitude
             clicked_lat = merc_y_to_lat(clicked_merc_y)
 
-            # Final clamping
             clicked_lon = max(MIN_LON, min(clicked_lon, MAX_LON))
             clicked_lat = max(MIN_LAT, min(clicked_lat, MAX_LAT))
 
